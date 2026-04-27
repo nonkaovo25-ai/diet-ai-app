@@ -81,9 +81,12 @@ const CHARACTER_PROMPTS: Record<CharacterName, string> = {
     "2. 間違ったダイエット知識（絶食など）には：「それはマジでヤバいって！」と全力で止め、正しい方法（タンパク質摂る等）を教える。",
     "3. 完璧主義にならないよう、「見た目がアガればOK！」というスタンスを貫く。",
     "4. たまに「あ、プロテインこぼしたｗ」などの自虐を混ぜて親近感を出す（おっちょこちょい設定）。",
+    "5. 【日常会話への対応】ダイエット以外の話題（今日の出来事、愚痴、食べたもの、天気、推しの話など）にも自然に反応すること。無理にダイエットに結びつけなくていい。友達感覚で共感してから、自然な流れでポジティブなトークを続けること。",
+    "6. 【モチベ維持】体重が減っていなくても「筋肉ついてるじゃん！体重より見た目が全てっしょ！」のように前向きな視点を提供する。小さな成果も大げさに褒める。",
+    "7. 【ユーザーを特別扱い】「このまま続けたら絶対なれるって！ウチ確信してるよ💖」のような特別感のある言葉で自信を持たせる。",
     "",
     "# Response Format",
-    "1) ポジティブな共感・一言 2) 具体的なアドバイスや今日のチャレンジ 3) アゲアゲな応援の締め、の順でまとめる。",
+    "1) ポジティブな共感・一言 2) 具体的なアドバイスや今日のチャレンジ（またはダイエット以外の話題なら自然な会話の続き） 3) アゲアゲな応援の締め、の順でまとめる。",
     "返答は短めにテンポよく。絵文字を忘れずに！",
     "",
     "# ダイエット理論（必ず遵守）",
@@ -144,7 +147,12 @@ type DiagnosisQuestionId =
   | "height"
   | "goal_weight"
   | "activity"
-  | "deadline";
+  | "deadline"
+  | "wake_time"
+  | "sleep_time"
+  | "meal_time"
+  | "work_hours"
+  | "water_intake";
 
 type InputType = "choice" | "number" | "free_text";
 
@@ -215,6 +223,42 @@ const DIAGNOSIS_QUESTIONS: readonly DiagnosisQuestion[] = [
     question: "8問目：期限\n理想の自分になる「期限」はある？📅（例：3ヶ月後）",
     inputType: "free_text",
   },
+  {
+    id: "wake_time",
+    question: "9問目：起きる時間\n毎朝だいたい何時に起きてる？⏰（例：7時）",
+    aizuchi: "了解！生活リズムが分かると、ベストな運動タイムを提案できるよ✨",
+    inputType: "free_text",
+  },
+  {
+    id: "sleep_time",
+    question: "10問目：寝る時間\n毎晩だいたい何時に寝てる？🌙（例：23時）",
+    aizuchi: "睡眠は最強のダイエット法のひとつだよ！しっかり聞けてよかった✨",
+    inputType: "free_text",
+  },
+  {
+    id: "meal_time",
+    question: "11問目：食事の時間\n朝・昼・夜、だいたい何時に食べてる？🍽️\n（例：朝8時・昼13時・夜20時）",
+    aizuchi: "食事タイミングが分かると代謝プランが立てやすくなるよ💡",
+    inputType: "free_text",
+  },
+  {
+    id: "work_hours",
+    question: "12問目：仕事・学校の時間帯\n平日の仕事や学校はだいたい何時から何時まで？💼\n（例：9〜18時／フリーランスで不定）",
+    aizuchi: "忙しい時間帯が分かると、隙間トレーニングも提案できるよ！",
+    inputType: "free_text",
+  },
+  {
+    id: "water_intake",
+    question: "13問目：水分摂取\n1日にどのくらい水を飲んでる？💧",
+    choices: [
+      "ほとんど飲まない（〜500ml）",
+      "少し飲む（500ml〜1L）",
+      "まあまあ飲む（1〜1.5L）",
+      "しっかり飲む（1.5L〜）",
+    ],
+    aizuchi: "全部教えてくれてありがとう！これで完璧なプランが作れるよ🔥",
+    inputType: "choice",
+  },
 ];
 
 type DiagnosisState = {
@@ -238,6 +282,11 @@ type DbUserRow = {
   goal_weight: number | null;
   activity: string | null;
   deadline: string | null;
+  wake_time: string | null;
+  sleep_time: string | null;
+  meal_time: string | null;
+  work_hours: string | null;
+  water_intake: string | null;
   pms_symptoms: string | null;
   period_symptoms: string | null;
   cycle_reg_step: number | null;
@@ -362,6 +411,11 @@ function rowToDiagnosisState(row: DbUserRow): DiagnosisState {
       goal_weight: row.goal_weight !== null ? String(row.goal_weight) : undefined,
       activity: row.activity ?? undefined,
       deadline: row.deadline ?? undefined,
+      wake_time: row.wake_time ?? undefined,
+      sleep_time: row.sleep_time ?? undefined,
+      meal_time: row.meal_time ?? undefined,
+      work_hours: row.work_hours ?? undefined,
+      water_intake: row.water_intake ?? undefined,
     },
     cheerStyle: pickCheerStyle(row.support_style ?? ""),
     selectedCharacter: row.selected_character ?? undefined,
@@ -372,6 +426,15 @@ function diagnosisStepIsOngoing(step: number): boolean {
   return step >= 0 && step < DIAGNOSIS_QUESTIONS.length;
 }
 
+/** 生理・月経に関するキーワードかどうかを判定（awaiting_rich_input より優先処理するため） */
+function isPeriodRelatedText(text: string): boolean {
+  const keywords = [
+    "生理", "月経", "生理来た", "生理きた", "生理始まった", "生理終わった",
+    "生理おわった", "生理まだ", "生理スタート",
+  ];
+  return keywords.some((kw) => text.includes(kw));
+}
+
 async function fetchOrCreateUserRow(lineUserId: string): Promise<DbUserRow> {
   if (!supabase) {
     throw new Error("Supabase client is not configured.");
@@ -380,7 +443,7 @@ async function fetchOrCreateUserRow(lineUserId: string): Promise<DbUserRow> {
   const { data: found, error: findError } = await supabase
     .from("users")
     .select(
-      "line_user_id,diagnosis_step,ideal,temptation,support_style,selected_character,current_weight,height,goal_weight,activity,deadline,pms_symptoms,period_symptoms,cycle_reg_step,cycle_reg_start_date,pending_period_check,awaiting_rich_input",
+      "line_user_id,diagnosis_step,ideal,temptation,support_style,selected_character,current_weight,height,goal_weight,activity,deadline,wake_time,sleep_time,meal_time,work_hours,water_intake,pms_symptoms,period_symptoms,cycle_reg_step,cycle_reg_start_date,pending_period_check,awaiting_rich_input",
     )
     .eq("line_user_id", lineUserId)
     .maybeSingle<DbUserRow>();
@@ -399,7 +462,7 @@ async function fetchOrCreateUserRow(lineUserId: string): Promise<DbUserRow> {
       diagnosis_step: DIAGNOSIS_QUESTIONS.length,
     })
     .select(
-      "line_user_id,diagnosis_step,ideal,temptation,support_style,selected_character,current_weight,height,goal_weight,activity,deadline,pms_symptoms,period_symptoms,cycle_reg_step,cycle_reg_start_date,pending_period_check,awaiting_rich_input",
+      "line_user_id,diagnosis_step,ideal,temptation,support_style,selected_character,current_weight,height,goal_weight,activity,deadline,wake_time,sleep_time,meal_time,work_hours,water_intake,pms_symptoms,period_symptoms,cycle_reg_step,cycle_reg_start_date,pending_period_check,awaiting_rich_input",
     )
     .single<DbUserRow>();
 
@@ -421,7 +484,7 @@ async function updateUserRow(
     .update(patch)
     .eq("line_user_id", lineUserId)
     .select(
-      "line_user_id,diagnosis_step,ideal,temptation,support_style,selected_character,current_weight,height,goal_weight,activity,deadline,pms_symptoms,period_symptoms,cycle_reg_step,cycle_reg_start_date,pending_period_check,awaiting_rich_input",
+      "line_user_id,diagnosis_step,ideal,temptation,support_style,selected_character,current_weight,height,goal_weight,activity,deadline,wake_time,sleep_time,meal_time,work_hours,water_intake,pms_symptoms,period_symptoms,cycle_reg_step,cycle_reg_start_date,pending_period_check,awaiting_rich_input",
     )
     .single<DbUserRow>();
 
@@ -968,6 +1031,11 @@ async function generateCharacterReply(
   if (userRow?.height) userDataLines.push(`身長: ${userRow.height}cm`);
   if (userRow?.goal_weight) userDataLines.push(`目標体重: ${userRow.goal_weight}kg`);
   if (userRow?.activity) userDataLines.push(`活動量: ${userRow.activity}`);
+  if (userRow?.wake_time) userDataLines.push(`起床時間: ${userRow.wake_time}`);
+  if (userRow?.sleep_time) userDataLines.push(`就寝時間: ${userRow.sleep_time}`);
+  if (userRow?.meal_time) userDataLines.push(`食事時間: ${userRow.meal_time}`);
+  if (userRow?.work_hours) userDataLines.push(`仕事・学校の時間帯: ${userRow.work_hours}`);
+  if (userRow?.water_intake) userDataLines.push(`水分摂取: ${userRow.water_intake}`);
   const userDataSection = userDataLines.length > 0
     ? `\n\n# ユーザーの登録データ（BMIやカロリー計算のツールを呼ぶ際はこの数値を使うこと）\n${userDataLines.join("\n")}`
     : "";
@@ -1081,16 +1149,34 @@ async function generateFinalRoadmap(
       : diagnosisState.cheerStyle === "gal"
         ? "元気・ギャル系"
         : "優しく・癒し系";
+  const a = diagnosisState.answers;
+  const lifestyleSection =
+    a.wake_time || a.sleep_time || a.meal_time || a.work_hours || a.water_intake
+      ? [
+          "\n--- 生活習慣データ ---",
+          a.wake_time ? `起床時間: ${a.wake_time}` : "",
+          a.sleep_time ? `就寝時間: ${a.sleep_time}` : "",
+          a.meal_time ? `食事時間: ${a.meal_time}` : "",
+          a.work_hours ? `仕事・学校の時間帯: ${a.work_hours}` : "",
+          a.water_intake ? `水分摂取: ${a.water_intake}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "";
+
   const inputSummary = [
-    `理想の姿: ${diagnosisState.answers.ideal || "未回答"}`,
-    `一番の誘惑: ${diagnosisState.answers.temptation || "未回答"}`,
-    `応援スタイル: ${diagnosisState.answers.support_style || styleLabel}`,
-    `現在の体重: ${diagnosisState.answers.current_weight ? `${diagnosisState.answers.current_weight}kg` : "未回答"}`,
-    `身長: ${diagnosisState.answers.height ? `${diagnosisState.answers.height}cm` : "未回答"}`,
-    `目標の体重: ${diagnosisState.answers.goal_weight ? `${diagnosisState.answers.goal_weight}kg` : "未回答"}`,
-    `活動量: ${diagnosisState.answers.activity || "未回答"}`,
-    `期限: ${diagnosisState.answers.deadline || "未回答"}`,
-  ].join("\n");
+    `理想の姿: ${a.ideal || "未回答"}`,
+    `一番の誘惑: ${a.temptation || "未回答"}`,
+    `応援スタイル: ${a.support_style || styleLabel}`,
+    `現在の体重: ${a.current_weight ? `${a.current_weight}kg` : "未回答"}`,
+    `身長: ${a.height ? `${a.height}cm` : "未回答"}`,
+    `目標の体重: ${a.goal_weight ? `${a.goal_weight}kg` : "未回答"}`,
+    `活動量: ${a.activity || "未回答"}`,
+    `期限: ${a.deadline || "未回答"}`,
+    lifestyleSection,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   try {
     const plan =
@@ -1098,10 +1184,12 @@ async function generateFinalRoadmap(
         {
           role: "system",
           content: [
-            "あなたはダイエット伴走コーチです。",
+            "あなたはプロのパーソナルトレーナー兼ダイエット伴走コーチです。",
             `口調は${styleLabel}で統一してください。`,
             "日本語で、具体的かつ安全なプランを作ってください。",
-            "1) 1週間目、2) 2〜4週間目、3) 1〜3ヶ月目、4) つまずき対策 の順で箇条書きで返してください。",
+            "生活習慣データ（起床・就寝・食事・仕事の時間）が提供されている場合は、その時間帯に合わせた最適な運動タイミングや食事改善ポイントを必ず盛り込むこと。",
+            "水分摂取が少ない場合は水分補給の重要性を伝えること。",
+            "1) 1週間目（小さな習慣づくり）、2) 2〜4週間目（ペースアップ）、3) 1〜3ヶ月目（仕上げ）、4) つまずき対策、5) 運動のベストタイム提案（生活習慣に基づく） の順で箇条書きで返してください。",
           ].join("\n"),
         },
         {
@@ -1250,13 +1338,21 @@ export async function POST(request: Request) {
                   : "") +
                 "\n\n# 体型分析タスク（この順番で回答すること）\n" +
                 "1.【骨格タイプ】ストレート・ウェーブ・ナチュラルを判定し、そのタイプの特徴を1〜2文で説明する。\n" +
-                "2.【推定サイズ】身長・体重が提供されている場合、ウエスト・ヒップの目安を提示する。必ず「推定値・誤差±5cm程度あり」と添えること。\n" +
-                "3.【引き締めポイント】写真を見て気になる部位を2〜3か所、やさしくポジティブに伝える。\n" +
-                "4.【週間トレーニングプラン】骨格タイプに合った週3〜4回のメニュー（種目・回数・セット数）を具体的に。\n" +
+                "2.【姿勢・クセの分析】プロのパーソナルトレーナーとして以下を写真から観察・分析する。\n" +
+                "   - 反り腰（腰椎過前弯）の有無と程度\n" +
+                "   - 猫背（胸椎後弯）・肩の前巻きの有無\n" +
+                "   - 骨盤前傾・後傾のクセ\n" +
+                "   - 前腿（大腿四頭筋）の張り・太もも前側への負荷\n" +
+                "   - 左右の肩や腰の高さのアンバランス\n" +
+                "   発見した姿勢の問題は「〇〇のクセがありそう！」と親しみやすく伝え、放置するとどんなデメリットがあるかも一言添えること。\n" +
+                "3.【姿勢改善エクササイズ】姿勢のクセに特化した改善エクササイズを2〜3種目、具体的に（種目名・回数・コツ）提案する。\n" +
+                "4.【推定サイズ】身長・体重が提供されている場合、ウエスト・ヒップの目安を提示する。必ず「推定値・誤差±5cm程度あり」と添えること。\n" +
+                "5.【引き締めポイント】写真を見て気になる部位を2〜3か所、やさしくポジティブに伝える。\n" +
+                "6.【週間トレーニングプラン】骨格タイプと姿勢クセを踏まえた週3〜4回のメニュー（種目・回数・セット数）を具体的に。\n" +
                 (pfcGuide
-                  ? `5.【食事プラン】${pfcGuide}を目安に、具体的な食材例を添えて説明する。\n`
-                  : "5.【食事プラン】目標体重に向けたPFCバランスの目安を提案する。\n") +
-                "6.【ゴールのイメージ】目標体重達成後の変化をポジティブに伝えて締める。\n" +
+                  ? `7.【食事プラン】${pfcGuide}を目安に、具体的な食材例を添えて説明する。\n`
+                  : "7.【食事プラン】目標体重に向けたPFCバランスの目安を提案する。\n") +
+                "8.【ゴールのイメージ】目標体重達成後・姿勢改善後の変化をポジティブに伝えて締める。\n" +
                 "確信が低い部分には「ウチ100%じゃないけど〜」と明記すること。写真が不鮮明・人物でない場合は撮り直しをお願いして。";
 
               const analysisText = await callVision(
@@ -1449,9 +1545,13 @@ export async function POST(request: Request) {
         }
 
         // ----- リッチメニュー: 体重・運動の続きメッセージ -----
+        // 生理関連キーワードは awaiting_rich_input より優先して後続の生理フローへ
+        const skipAwaitingForPeriod = isPeriodRelatedText(incomingText);
+
         if (
           workingRow.awaiting_rich_input === "weight" &&
-          !diagnosisStepIsOngoing(diagnosisState.currentIndex)
+          !diagnosisStepIsOngoing(diagnosisState.currentIndex) &&
+          !skipAwaitingForPeriod
         ) {
           const w = normalizeWeightInput(incomingText);
           if (w != null && supabase) {
@@ -1483,7 +1583,8 @@ export async function POST(request: Request) {
 
         if (
           workingRow.awaiting_rich_input === "exercise" &&
-          !diagnosisStepIsOngoing(diagnosisState.currentIndex)
+          !diagnosisStepIsOngoing(diagnosisState.currentIndex) &&
+          !skipAwaitingForPeriod
         ) {
           const trimmed = incomingText.trim();
           if (trimmed.length === 0) {
@@ -1654,10 +1755,23 @@ export async function POST(request: Request) {
           (incomingText === "生理来た！" || incomingText.includes("来た") || incomingText.includes("きた"))
         ) {
           if (supabase) {
-            await supabase.from("menstrual_cycles").insert({
-              line_user_id: lineUserId,
-              start_date: todayStr,
-            });
+            const { error: cycleInsertError } = await supabase
+              .from("menstrual_cycles")
+              .insert({
+                line_user_id: lineUserId,
+                start_date: todayStr,
+              });
+            if (cycleInsertError) {
+              console.error(
+                "menstrual_cycles insert failed:",
+                cycleInsertError,
+              );
+              await client.replyMessage(event.replyToken, {
+                type: "text",
+                text: "ごめんね、記録に失敗しちゃった😢 もう一度「生理来た」って送ってみてね！",
+              });
+              return;
+            }
             await updateUserRow(lineUserId, { pending_period_check: null, cycle_reg_step: null });
           }
           await client.replyMessage(event.replyToken, {
@@ -1683,7 +1797,20 @@ export async function POST(request: Request) {
         const periodStartKeywords = ["生理始まった", "生理きた", "生理来た", "生理が来た", "生理がきた", "生理スタート"];
         if (periodStartKeywords.some((kw) => incomingText.includes(kw))) {
           if (supabase) {
-            await supabase.from("menstrual_cycles").insert({ line_user_id: lineUserId, start_date: todayStr });
+            const { error: cycleInsertError2 } = await supabase
+              .from("menstrual_cycles")
+              .insert({ line_user_id: lineUserId, start_date: todayStr });
+            if (cycleInsertError2) {
+              console.error(
+                "menstrual_cycles insert failed (direct):",
+                cycleInsertError2,
+              );
+              await client.replyMessage(event.replyToken, {
+                type: "text",
+                text: "ごめんね、記録に失敗しちゃった😢 もう一度「生理来た」って送ってみてね！",
+              });
+              return;
+            }
             await updateUserRow(lineUserId, { pending_period_check: null, cycle_reg_step: null });
           }
           await client.replyMessage(event.replyToken, {
@@ -2112,6 +2239,11 @@ export async function POST(request: Request) {
           }
           if (currentQuestion.id === "activity") updatePatch.activity = resolvedAnswer;
           if (currentQuestion.id === "deadline") updatePatch.deadline = resolvedAnswer;
+          if (currentQuestion.id === "wake_time") updatePatch.wake_time = resolvedAnswer;
+          if (currentQuestion.id === "sleep_time") updatePatch.sleep_time = resolvedAnswer;
+          if (currentQuestion.id === "meal_time") updatePatch.meal_time = resolvedAnswer;
+          if (currentQuestion.id === "work_hours") updatePatch.work_hours = resolvedAnswer;
+          if (currentQuestion.id === "water_intake") updatePatch.water_intake = resolvedAnswer;
 
           const isLastQuestion =
             diagnosisState.currentIndex >= DIAGNOSIS_QUESTIONS.length - 1;

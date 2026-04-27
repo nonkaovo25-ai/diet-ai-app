@@ -166,8 +166,14 @@ async function runRemind(): Promise<NextResponse> {
           message = `PMS本番近いよ〜！💖 甘いもの食べたくなっても自分を責めないで！今だけだよ✨`;
           break;
 
-        case "period_check":
-          if (user.pending_period_check !== todayStr) {
+        case "period_check": {
+          // 最新サイクルが予測開始日以降に始まっている場合は記録済みのためスキップ
+          const latestCycleForCheck = cycles[0];
+          const alreadyRecordedCheck =
+            latestCycleForCheck &&
+            latestCycleForCheck.startDate >=
+              phase.prediction.nextPeriodStart;
+          if (!alreadyRecordedCheck && user.pending_period_check !== todayStr) {
             let callName = "あなた";
             try {
               const prof = await lineClient.getProfile(user.line_user_id);
@@ -183,9 +189,17 @@ async function runRemind(): Promise<NextResponse> {
               .eq("line_user_id", user.line_user_id);
           }
           break;
+        }
 
-        case "period_overdue":
+        case "period_overdue": {
+          // 最新サイクルが予測開始日以降に始まっている場合は記録済みのためスキップ
+          const latestCycleForOverdue = cycles[0];
+          const alreadyRecordedOverdue =
+            latestCycleForOverdue &&
+            latestCycleForOverdue.startDate >=
+              phase.prediction.nextPeriodStart;
           if (
+            !alreadyRecordedOverdue &&
             user.pending_period_check &&
             user.pending_period_check < todayStr
           ) {
@@ -197,6 +211,7 @@ async function runRemind(): Promise<NextResponse> {
               .eq("line_user_id", user.line_user_id);
           }
           break;
+        }
 
         case "period_end":
           message = `生理明けたね！✨ お疲れさまでした！ここからがダイエット黄金期🔥 一緒に頑張ろ！`;
