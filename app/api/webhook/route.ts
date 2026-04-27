@@ -1861,6 +1861,15 @@ export async function POST(request: Request) {
 
         // ---- 「生理登録」コマンド → 初回/過去サイクル登録フロー ----
         if (incomingText === RICH_MENU_PERIOD_REG) {
+          // 症状入力フロー中（step 2〜22）は誤タップ・再送を無視してフローを継続
+          const currentStep = userRow.cycle_reg_step;
+          if (currentStep !== null && currentStep >= 2) {
+            await client.replyMessage(event.replyToken, {
+              type: "text",
+              text: "今症状の記録中だよ！続けてね💖\n（やり直す場合はもう一度「生理登録」を送ってね）",
+            });
+            return;
+          }
           await updateUserRow(lineUserId, {
             cycle_reg_step: 0,
             cycle_reg_start_date: null,
